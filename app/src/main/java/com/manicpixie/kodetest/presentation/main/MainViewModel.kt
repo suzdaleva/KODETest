@@ -68,6 +68,7 @@ class MainViewModel @Inject constructor(
     sealed class UiEvent {
         data class ShowErrorSnackBar(val message: String) : UiEvent()
         data class ShowLoadingSnackBar(val message: String) : UiEvent()
+        object CancelSnackBar: UiEvent()
     }
 
 
@@ -81,6 +82,7 @@ class MainViewModel @Inject constructor(
                     searchUsers(searchQuery.value.query, userOrder)
                     //_eventFlow.emit(UiEvent.ShowLoadingSnackBar("Секундочку, гружусь..."))
                     _isRefreshing.emit(false)
+                    _eventFlow.emit(UiEvent.CancelSnackBar)
                 }
                 is Resource.Error -> {
                     _eventFlow.emit(UiEvent.ShowErrorSnackBar("Hе могу обновить данные.\n" +
@@ -89,7 +91,7 @@ class MainViewModel @Inject constructor(
                     _isRefreshing.emit(false)
                 }
                 is Resource.Loading -> {
-                    _eventFlow.emit(UiEvent.ShowLoadingSnackBar("Секундочку, гружусь..."))
+                    _eventFlow.emit(UiEvent.ShowLoadingSnackBar("..."))
                 }
             }
 

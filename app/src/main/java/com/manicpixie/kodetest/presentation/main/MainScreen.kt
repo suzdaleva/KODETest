@@ -7,17 +7,24 @@ import android.util.Log
 import android.view.View
 import android.view.ViewTreeObserver
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.FlingBehavior
+import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.*
 import androidx.compose.material.SnackbarDefaults.backgroundColor
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -25,11 +32,16 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusState
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.onFocusEvent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Color.Companion.Green
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
@@ -38,13 +50,16 @@ import com.manicpixie.kodetest.R
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.google.accompanist.pager.ExperimentalPagerApi
 import com.google.accompanist.pager.HorizontalPager
+import com.google.accompanist.pager.PagerDefaults
 import com.google.accompanist.pager.rememberPagerState
 import com.google.accompanist.swiperefresh.SwipeRefresh
+import com.google.accompanist.swiperefresh.SwipeRefreshState
 import com.google.accompanist.swiperefresh.rememberSwipeRefreshState
 import com.google.gson.Gson
 import com.manicpixie.kodetest.domain.util.UserOrder
@@ -71,6 +86,7 @@ fun MainScreen(
     navController: NavController,
     viewModel: MainViewModel = hiltViewModel()
 ) {
+    val snackbarHostState = remember{mutableStateOf(SnackbarHostState())}
     val queryState = viewModel.searchQuery.value
     val contentState = viewModel.contentState.value
 
@@ -87,6 +103,9 @@ fun MainScreen(
     val sortButtonColor = remember {
         mutableStateOf(Color(0xFFC3C3C6))
     }
+    val snackbarColor = remember {
+        mutableStateOf(Color(0xFF6534FF))
+    }
     val isBirthdayVisible = rememberSaveable {
         mutableStateOf(false)
     }
@@ -94,24 +113,58 @@ fun MainScreen(
         viewModel.eventFlow.collectLatest { event ->
             when (event) {
                 is MainViewModel.UiEvent.ShowErrorSnackBar -> {
-                    scaffoldState.snackbarHostState.showSnackbar(message =
+                    snackbarColor.value = Red
+                    snackbarHostState.value.showSnackbar(message =
                         "Hе могу обновить данные.\n" +
                                 "Проверь соединение с интернетом",
                         duration = SnackbarDuration.Short
                     )
                 }
                 is MainViewModel.UiEvent.ShowLoadingSnackBar -> {
-                    scaffoldState.snackbarHostState.showSnackbar(message =
+                    snackbarColor.value = Color(0xFF6534FF)
+                    snackbarHostState.value.showSnackbar(message =
                     "Секундочку, гружусь..."
                     )
-//                    if(contentState.users.isNotEmpty()) {
-//                    scaffoldState.snackbarHostState.currentSnackbarData?.dismiss()}
+
+                }
+                is MainViewModel.UiEvent.CancelSnackBar -> {
+                    snackbarHostState.value.currentSnackbarData?.dismiss()
                 }
             }
         }
     }
     val drawerState = rememberBottomDrawerState(initialValue = BottomDrawerValue.Closed)
-    Scaffold(scaffoldState = scaffoldState) {
+    Scaffold(scaffoldState = scaffoldState,
+    snackbarHost = {
+        SnackbarHost(
+            modifier = Modifier,
+            hostState = snackbarHostState.value,
+            snackbar = { snackbarData: SnackbarData ->
+                Card(
+                    backgroundColor = snackbarColor.value,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(start = 16.dp, top = 14.dp, bottom = 14.dp),
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        Text(text = snackbarData.message,
+                            color = Color.White,
+                            style = TextStyle(
+                            fontFamily = interFont,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            lineHeight = 18.sp
+                        ))
+                    }
+                }
+            }
+        )
+    }
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
             val focusManager = LocalFocusManager.current
             BottomDrawer(
@@ -154,7 +207,7 @@ fun MainScreen(
                                             tint = queryState.tint
                                         )
                                     },
-                                    onClick = {})
+                                    onClick = { })
                             },
                             trailingIcon = {
                                 IconButton(
@@ -214,12 +267,16 @@ fun MainScreen(
                             }
                         )
                         SwipeRefresh(
+                            clipIndicatorToPadding = false,
                             state = rememberSwipeRefreshState(isRefreshing),
                             onRefresh = {
                                 viewModel.refresh(currentUserOrder.value)
-                            },
+                            }
                         ) {
-                            HorizontalPager(count = 13, state = pagerState) { index ->
+                            HorizontalPager(
+                                count = 13, state = pagerState) { index ->
+
+
                                 if (contentState.isLoading) {
                                     LoadingScreen(modifier = Modifier.fillMaxSize())
                                 }
@@ -256,12 +313,25 @@ fun MainScreen(
                                                     currentDate.year.toString()
                                                 )
                                             )
+                                            //sortedList[sortedList.indexOf(user) - 1].birthday
+                                            val previousDate: Date? = if(sortedList.indexOf(user) != 0 ) SimpleDateFormat("yyyy-MM-dd").parse(
+                                                sortedList[sortedList.indexOf(user) - 1].birthday.replaceRange(
+                                                    0..3,
+                                                    currentDate.year.toString()
+                                                )
+                                            ) else date
+                                            val previousBirthdayDate =
+                                                previousDate!!.toInstant().atZone(ZoneId.systemDefault())
+                                                    .toLocalDate()
                                             val birthdayDate =
                                                 date!!.toInstant().atZone(ZoneId.systemDefault())
                                                     .toLocalDate()
                                             if (contentState.userOrder == UserOrder.Birthday && Period.between(
                                                     currentDate,
                                                     birthdayDate
+                                                ).isNegative && !Period.between(
+                                                    currentDate,
+                                                    previousBirthdayDate
                                                 ).isNegative
                                             ) {
                                                 YearDivider()
@@ -282,6 +352,7 @@ fun MainScreen(
 
                                         }
                                     }
+
                                 }
 
                                 if (!contentState.isLoading
@@ -299,6 +370,7 @@ fun MainScreen(
                                     )
 
                                 }
+
                             }
                         }
                     }
@@ -349,7 +421,8 @@ private fun CustomTextField(
                     onValueChange = onValueChange,
                     singleLine = singleLine,
                     textStyle = textStyle,
-                    modifier = Modifier.clearFocusOnKeyboardDismiss()
+                    modifier = Modifier
+                        .clearFocusOnKeyboardDismiss()
                         .fillMaxWidth()
                         .onFocusChanged { onFocusChange(it) }
 
@@ -551,23 +624,8 @@ fun YearDivider(
 
 }
 
-//@Composable
-//fun SwipeRefresh(
-//state = /* ... */,
-//onRefresh = /* ... */,
-//indicator = { state, trigger ->
-//    SwipeRefreshIndicator(
-//        // Pass the SwipeRefreshState + trigger through
-//        state = state,
-//        refreshTriggerDistance = trigger,
-//        // Enable the scale animation
-//        scale = true,
-//        // Change the color and shape
-//        backgroundColor = MaterialTheme.colors.primary,
-//        shape = MaterialTheme.shapes.small,
-//    )
-//}
-//)
+
+
 
 fun View.isKeyboardOpen(): Boolean {
     val rect = Rect()
@@ -615,6 +673,26 @@ fun Modifier.clearFocusOnKeyboardDismiss(): Modifier = composed {
             }
         }
     }
+}
+
+
+private class FlingBehaviourMultiplier(
+    private val multiplier: Float,
+    private val baseFlingBehavior: FlingBehavior
+) : FlingBehavior {
+    override suspend fun ScrollScope.performFling(initialVelocity: Float): Float {
+        return with(baseFlingBehavior) {
+            performFling(initialVelocity * multiplier)
+        }
+    }
+}
+
+@Composable
+fun rememberFlingBehaviorMultiplier(
+    multiplier: Float,
+    baseFlingBehavior: FlingBehavior
+): FlingBehavior = remember(multiplier, baseFlingBehavior) {
+    FlingBehaviourMultiplier(multiplier, baseFlingBehavior)
 }
 
 
